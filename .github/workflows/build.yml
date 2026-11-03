@@ -15,14 +15,27 @@ jobs:
       - uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
       - name: Configure
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
       - name: Build
         run: cmake --build build
+      - name: Build installer
+        run: cmake --build build --target installer
+      - name: Package portable ZIP
+        run: cmake --build build --target portable
       - uses: actions/upload-artifact@v4
         with:
           name: livewall-msvc-x64
-          path: build/dist/livewall.exe
+          path: |
+            build/dist/livewall.exe
+            build/dist/LiveWall-*-setup.exe
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: livewall-portable-x64
+          path: build/dist/LiveWall-*-portable.zip
           if-no-files-found: error
 
   mingw:

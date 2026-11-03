@@ -41,6 +41,18 @@ const std::wstring& GetAppDataDir() {
     static bool initialized = false;
     if (!initialized) {
         initialized = true;
+
+        // Portable mode: a settings.ini (or a livewall.ini marker) next to the
+        // executable keeps the settings and the log in that folder, so the
+        // whole thing can live on a USB stick.
+        const std::wstring moduleDir = GetModuleDir();
+        if (!moduleDir.empty() &&
+            (FileExists(JoinPath(moduleDir, L"settings.ini")) ||
+             FileExists(JoinPath(moduleDir, L"livewall.ini")))) {
+            dir = moduleDir;
+            return dir;
+        }
+
         const std::wstring base = GetLocalAppDataDir();
         if (!base.empty()) {
             dir = JoinPath(base, L"LiveWall");

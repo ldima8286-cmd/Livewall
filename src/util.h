@@ -6,6 +6,8 @@ std::wstring Utf8ToWide(std::string_view text);
 std::string WideToUtf8(std::wstring_view text);
 
 // %LOCALAPPDATA%\LiveWall, created on first use. Empty string on failure.
+// A livewall.ini next to the executable switches to portable mode and the
+// executable's own folder is returned instead.
 const std::wstring& GetAppDataDir();
 std::wstring GetLocalAppDataDir();
 std::wstring GetModuleDir();

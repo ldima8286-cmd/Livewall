@@ -1,0 +1,79 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: Windows release
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Determine version
+        id: version
+        shell: pwsh
+        run: |
+          if ("${{ github.ref }}" -like "refs/tags/v*") {
+            $value = "${{ github.ref_name }}".Substring(1)
+          } else {
+            $value = "0.1.0"
+          }
+          "value=$value" >> $env:GITHUB_OUTPUT
+          Write-Host "Version: $value"
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
+            "/DAppVersion=${{ steps.version.outputs.value }}" `
+            "/DSourceDir=$PWD\build\dist" `
+            "/DOutputDir=$PWD\build\dist" `
+            "installer\livewall.iss"
+
+      - name: Package portable ZIP
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.value }}"
+          Compress-Archive `
+            -Path build\dist\livewall.exe,build\dist\README.md,build\dist\LICENSE,build\dist\settings.ini `
+            -DestinationPath "build\dist\LiveWall-$version-portable.zip" -Force
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: livewall-release
+          path: |
+            build/dist/LiveWall-*-setup.exe
+            build/dist/LiveWall-*-portable.zip
+          if-no-files-found: error
+
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.value }}"
+          gh release create "${{ github.ref_name }}" `
+            "build/dist/LiveWall-$version-setup.exe" `
+            "build/dist/LiveWall-$version-portable.zip" `
+            --title "LiveWall $version" `
+            --generate-notes

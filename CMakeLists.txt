@@ -49,6 +49,7 @@ target_compile_definitions(livewall PRIVATE
     _CRT_SECURE_NO_WARNINGS
     _WIN32_WINNT=0x0A00
     WINVER=0x0A00
+    LIVEWALL_VERSION="${PROJECT_VERSION}"
 )
 
 if(LIVEWALL_CONSOLE)
@@ -96,9 +97,46 @@ else()
     endif()
 endif()
 
-# Deployment helper: copy the built binary next to a runnable folder.
+# Deployment helper: stage everything a release needs in build/dist.
 add_custom_command(TARGET livewall POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/dist"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "$<TARGET_FILE:livewall>" "${CMAKE_BINARY_DIR}/dist/livewall.exe"
-    COMMENT "Copying livewall.exe to ${CMAKE_BINARY_DIR}/dist")
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/README.md" "${CMAKE_BINARY_DIR}/dist/README.md"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE" "${CMAKE_BINARY_DIR}/dist/LICENSE"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/resources/portable-settings.ini"
+        "${CMAKE_BINARY_DIR}/dist/settings.ini"
+    COMMENT "Staging livewall.exe, README.md, LICENSE and settings.ini in ${CMAKE_BINARY_DIR}/dist")
+
+# Portable ZIP: unzip anywhere, drop a livewall.ini next to livewall.exe to keep
+# the settings in that folder.
+add_custom_target(portable
+    COMMAND ${CMAKE_COMMAND} -E tar cfv
+        "${CMAKE_BINARY_DIR}/dist/LiveWall-${PROJECT_VERSION}-portable.zip"
+        --format=zip livewall.exe README.md LICENSE settings.ini
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/dist"
+    DEPENDS livewall
+    COMMENT "Packing the portable build"
+    VERBATIM)
+
+# Installer: requires Inno Setup 6 (ISCC on PATH or in the default folder).
+find_program(LIVEWALL_ISCC
+    NAMES ISCC iscc
+    HINTS "$ENV{ProgramFiles(x86)}/Inno Setup 6" "$ENV{ProgramFiles}/Inno Setup 6")
+
+if(LIVEWALL_ISCC)
+    add_custom_target(installer
+        COMMAND "${LIVEWALL_ISCC}"
+            "/DAppVersion=${PROJECT_VERSION}"
+            "/DSourceDir=${CMAKE_BINARY_DIR}/dist"
+            "/DOutputDir=${CMAKE_BINARY_DIR}/dist"
+            "${CMAKE_CURRENT_SOURCE_DIR}/installer/livewall.iss"
+        DEPENDS livewall
+        COMMENT "Building the LiveWall installer"
+        VERBATIM)
+else()
+    message(STATUS "Inno Setup (ISCC) not found - the 'installer' target is disabled")
+endif()

@@ -8,6 +8,28 @@
 
 #include <memory>
 
+// Commands that can be sent to an already running instance, either from the
+// command line or from the installer.
+enum class RemoteCommand : DWORD {
+    Open = 1,  // payload: the media path (WM_COPYDATA)
+    Pause,
+    Resume,
+    TogglePause,
+    Quit,
+    OpenDialog,
+};
+
+struct LaunchOptions {
+    std::wstring media;
+    std::wstring mode;
+    int fps = 0;
+    bool autostart = false;
+    bool showVersion = false;
+    bool showHelp = false;
+    bool hasCommand = false;
+    RemoteCommand command = RemoteCommand::OpenDialog;
+};
+
 class App final : public DesktopSink {
 public:
     int Run(HINSTANCE instance, int argc, wchar_t** argv);
@@ -32,7 +54,7 @@ private:
         kTimerRestart = 1,
     };
 
-    bool Init(HINSTANCE instance, int argc, wchar_t** argv);
+    bool Init(HINSTANCE instance, const LaunchOptions& options);
     void Shutdown();
 
     bool CreateMessageWindow();
@@ -63,6 +85,7 @@ private:
     std::unique_ptr<DesktopHost> m_host;
     std::unique_ptr<MediaSource> m_source;
     Settings m_settings;
+    std::wstring m_pendingPath;
 
     bool m_trayAdded = false;
     bool m_userPaused = false;

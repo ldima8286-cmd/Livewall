@@ -9,7 +9,12 @@
 #include <shlwapi.h>
 #include <wtsapi32.h>
 
+#include <cstdio>
 #include <cstdlib>
+
+#ifndef LIVEWALL_VERSION
+#define LIVEWALL_VERSION "0.1.0"
+#endif
 
 namespace {
 
@@ -19,6 +24,11 @@ const wchar_t* kRunValue = L"LiveWall";
 const wchar_t* kWindowTitle = L"LiveWall";
 const UINT kTrayIconId = 1;
 const UINT kIconResourceId = 101;
+
+// Posted to the message window by a second instance. WM_COPYDATA is used only
+// for the payload (a path); the actual work happens here so the sending
+// process never waits for dialogs or media loading.
+const UINT kRemoteCommandMessage = WM_APP + 2;
 
 UINT g_taskbarCreated = 0;
 
@@ -41,10 +51,129 @@ void ShowError(const std::wstring& text) {
     MessageBoxW(nullptr, text.c_str(), kWindowTitle, MB_ICONERROR | MB_OK);
 }
 
+// Text output that works for both the GUI and the console build: the release
+// binary has no console, so --version/--help must go through a message box.
+void ShowText(const std::wstring& text) {
+#ifdef LIVEWALL_CONSOLE
+    fwprintf(stdout, L"%ls\n", text.c_str());
+    fflush(stdout);
+#else
+    MessageBoxW(nullptr, text.c_str(), kWindowTitle, MB_ICONINFORMATION | MB_OK);
+#endif
+}
+
+const wchar_t* UsageText() {
+    return L"LiveWall " LIVEWALL_VERSION L"\n"
+           L"Живые обои для рабочего стола Windows.\n"
+           L"\n"
+           L"Использование:\n"
+           L"  livewall.exe [<файл>] [параметры]\n"
+           L"\n"
+           L"Параметры:\n"
+           L"  --open <файл>       Показать файл (GIF, видео, изображение)\n"
+           L"  --mode fit|fill|stretch\n"
+           L"                      Режим масштабирования\n"
+           L"  --fps <1..240>      Ограничение частоты кадров\n"
+           L"  --pause             Пауза\n"
+           L"  --resume            Продолжить\n"
+           L"  --toggle-pause      Переключить паузу\n"
+           L"  --open-dialog       Показать диалог выбора файла\n"
+           L"  --quit              Остановить LiveWall\n"
+           L"  --autostart         Служебный флаг автозапуска\n"
+           L"  --version           Версия\n"
+           L"  --help              Эта справка\n"
+           L"\n"
+           L"Команды передаются уже запущенному экземпляру.";
+}
+
+LaunchOptions ParseLaunchOptions(int argc, wchar_t** argv) {
+    LaunchOptions options;
+
+    auto takeValue = [&](int& index, std::wstring& out) {
+        if (index + 1 >= argc) return false;
+        out = argv[++index];
+        return true;
+    };
+
+    for (int i = 1; i < argc; ++i) {
+        const std::wstring arg = argv[i];
+        std::wstring value;
+
+        if (arg == L"--open" || arg == L"-o") {
+            if (takeValue(i, value) && !value.empty()) {
+                options.media = MakeAbsolute(value);
+                options.command = RemoteCommand::Open;
+                options.hasCommand = true;
+            }
+        } else if (arg == L"--pause") {
+            options.command = RemoteCommand::Pause;
+            options.hasCommand = true;
+        } else if (arg == L"--resume") {
+            options.command = RemoteCommand::Resume;
+            options.hasCommand = true;
+        } else if (arg == L"--toggle-pause") {
+            options.command = RemoteCommand::TogglePause;
+            options.hasCommand = true;
+        } else if (arg == L"--open-dialog" || arg == L"--pick") {
+            options.command = RemoteCommand::OpenDialog;
+            options.hasCommand = true;
+        } else if (arg == L"--quit" || arg == L"--exit") {
+            options.command = RemoteCommand::Quit;
+            options.hasCommand = true;
+        } else if (arg == L"--mode") {
+            takeValue(i, options.mode);
+        } else if (arg == L"--fps") {
+            if (takeValue(i, value)) options.fps = _wtoi(value.c_str());
+        } else if (arg == L"--autostart") {
+            options.autostart = true;
+        } else if (arg == L"--version" || arg == L"-v") {
+            options.showVersion = true;
+        } else if (arg == L"--help" || arg == L"-h" || arg == L"-?" || arg == L"/?") {
+            options.showHelp = true;
+        } else if (!arg.empty() && arg[0] != L'-') {
+            options.media = MakeAbsolute(arg);
+            options.command = RemoteCommand::Open;
+            options.hasCommand = true;
+        }
+    }
+
+    if (options.fps < 0 || options.fps > 240) options.fps = 0;
+    return options;
+}
+
+void ForwardToRunningInstance(const LaunchOptions& options) {
+    const HWND running = FindWindowW(kMessageClass, nullptr);
+    if (!running) return;
+
+    if (options.command == RemoteCommand::Open && !options.media.empty()) {
+        COPYDATASTRUCT data{};
+        data.dwData = static_cast<DWORD>(RemoteCommand::Open);
+        data.cbData = static_cast<DWORD>((options.media.size() + 1) * sizeof(wchar_t));
+        data.lpData = const_cast<wchar_t*>(options.media.c_str());
+        // The receiver copies the string and posts the command, so this call
+        // returns immediately even if loading the file opens a dialog.
+        SendMessageW(running, WM_COPYDATA, 0, reinterpret_cast<LPARAM>(&data));
+        return;
+    }
+
+    PostMessageW(running, kRemoteCommandMessage, static_cast<WPARAM>(options.command), 0);
+}
+
 }  // namespace
 
 int App::Run(HINSTANCE instance, int argc, wchar_t** argv) {
     m_instance = instance;
+
+    const LaunchOptions options = ParseLaunchOptions(argc, argv);
+
+    if (options.showVersion) {
+        ShowText(L"LiveWall " LIVEWALL_VERSION);
+        return 0;
+    }
+    if (options.showHelp) {
+        ShowText(UsageText());
+        return 0;
+    }
 
     // The manifest asks for PerMonitorV2; this call is a safety net for builds
     // where the manifest is not embedded.
@@ -60,34 +189,35 @@ int App::Run(HINSTANCE instance, int argc, wchar_t** argv) {
     }
 
     LogInit();
-    LogPrintf("livewall starting (pid %lu)", GetCurrentProcessId());
+    LogPrintf("livewall %s starting (pid %lu)", LIVEWALL_VERSION, GetCurrentProcessId());
 
-    // Single instance: a second launch just forwards the media path.
+    // Single instance: a second launch forwards the command and exits.
     HANDLE mutex = CreateMutexW(nullptr, TRUE, L"Local\\LiveWall.SingleInstance");
-    if (mutex && GetLastError() == ERROR_ALREADY_EXISTS) {
-        if (argc > 1) {
-            if (HWND running = FindWindowW(kMessageClass, nullptr)) {
-                int index = 1;
-                while (index < argc && argv[index][0] == L'-') ++index;
-                const std::wstring path = index < argc ? MakeAbsolute(argv[index]) : std::wstring();
-                if (path.empty()) {
-                    if (mutex) CloseHandle(mutex);
-                    LogShutdown();
-                    return 0;
-                }
-                COPYDATASTRUCT data{};
-                data.dwData = 1;
-                data.cbData = static_cast<DWORD>((path.size() + 1) * sizeof(wchar_t));
-                data.lpData = const_cast<wchar_t*>(path.c_str());
-                SendMessageW(running, WM_COPYDATA, 0, reinterpret_cast<LPARAM>(&data));
-            }
-        }
+    const bool alreadyRunning = mutex && GetLastError() == ERROR_ALREADY_EXISTS;
+
+    if (alreadyRunning) {
+        LogPrintf("another instance is running, forwarding the command");
+        ForwardToRunningInstance(options);
         if (mutex) CloseHandle(mutex);
         LogShutdown();
         return 0;
     }
 
-    if (!Init(instance, argc, argv)) {
+    // A control command with nothing to control is a no-op, not a reason to
+    // start a fresh instance (the installer calls `--quit` unconditionally).
+    // OpenDialog is interactive, so it starts the app when nothing is running.
+    const bool controlOnly = options.hasCommand &&
+                             options.command != RemoteCommand::Open &&
+                             options.command != RemoteCommand::OpenDialog;
+    if (controlOnly) {
+        LogPrintf("no running instance to control, nothing to do");
+        if (mutex) CloseHandle(mutex);
+        if (comInitialized) CoUninitialize();
+        LogShutdown();
+        return 0;
+    }
+
+    if (!Init(instance, options)) {
         Shutdown();
         if (mutex) CloseHandle(mutex);
         if (comInitialized) CoUninitialize();
@@ -195,26 +325,16 @@ int App::Run(HINSTANCE instance, int argc, wchar_t** argv) {
     return 0;
 }
 
-bool App::Init(HINSTANCE instance, int argc, wchar_t** argv) {
+bool App::Init(HINSTANCE instance, const LaunchOptions& options) {
     m_instance = instance;
     g_taskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");
 
     m_settings.Load();
 
-    bool mediaFromCommandLine = false;
-    for (int i = 1; i < argc; ++i) {
-        const std::wstring arg = argv[i];
-        if (arg == L"--mode" && i + 1 < argc) {
-            m_settings.mode = argv[++i];
-        } else if (arg == L"--fps" && i + 1 < argc) {
-            m_settings.fps = _wtoi(argv[++i]);
-        } else if (arg == L"--autostart") {
-            // Started from the Run key: nothing to override.
-        } else if (!arg.empty() && arg[0] != L'-') {
-            m_settings.media = MakeAbsolute(arg);
-            mediaFromCommandLine = true;
-        }
-    }
+    const bool mediaFromCommandLine = !options.media.empty();
+    if (mediaFromCommandLine) m_settings.media = options.media;
+    if (!options.mode.empty()) m_settings.mode = options.mode;
+    if (options.fps > 0) m_settings.fps = options.fps;
 
     if (m_settings.fps < 1 || m_settings.fps > 240) m_settings.fps = 60;
     if (m_settings.mode != L"fit" && m_settings.mode != L"fill" &&
@@ -253,6 +373,14 @@ bool App::Init(HINSTANCE instance, int argc, wchar_t** argv) {
 
     if (m_source) {
         ReloadDesktop();
+    } else if (!options.autostart) {
+        // First run or a double click on the exe: ask for a file right away
+        // instead of leaving the user staring at a tray balloon.
+        OpenMediaDialog();
+        if (!m_source) {
+            ShowTrayBalloon(L"LiveWall запущен",
+                            L"Значок в трее: выбор файла, пауза, режим и выход.");
+        }
     } else {
         // Do not touch the desktop until there is something to show: a black
         // wallpaper with no way to tell why would be worse than the default one.
@@ -673,12 +801,51 @@ LRESULT App::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
         case WM_COPYDATA: {
             auto* data = reinterpret_cast<COPYDATASTRUCT*>(lp);
-            if (data && data->cbData >= sizeof(wchar_t) && data->lpData) {
-                const std::wstring path(static_cast<const wchar_t*>(data->lpData));
-                LoadMedia(path);
+            if (data && data->cbData >= sizeof(wchar_t) && data->lpData &&
+                data->dwData == static_cast<DWORD>(RemoteCommand::Open)) {
+                // Copy the string: the sender's buffer is only valid for the
+                // duration of this call. Loading happens from the posted
+                // message so a modal dialog cannot block the sender.
+                m_pendingPath = static_cast<const wchar_t*>(data->lpData);
+                PostMessageW(hwnd, kRemoteCommandMessage,
+                             static_cast<WPARAM>(RemoteCommand::Open), 0);
             }
             return TRUE;
         }
+
+        case kRemoteCommandMessage:
+            switch (static_cast<RemoteCommand>(wp)) {
+                case RemoteCommand::Open:
+                    if (!m_pendingPath.empty()) {
+                        const std::wstring path = m_pendingPath;
+                        m_pendingPath.clear();
+                        LoadMedia(path);
+                    }
+                    break;
+                case RemoteCommand::Pause:
+                    m_userPaused = true;
+                    m_pauseStateDirty = true;
+                    m_dirty = true;
+                    break;
+                case RemoteCommand::Resume:
+                    m_userPaused = false;
+                    m_pauseStateDirty = true;
+                    m_dirty = true;
+                    break;
+                case RemoteCommand::TogglePause:
+                    m_userPaused = !m_userPaused;
+                    m_pauseStateDirty = true;
+                    m_dirty = true;
+                    break;
+                case RemoteCommand::Quit:
+                    m_quitting = true;
+                    DestroyWindow(hwnd);
+                    break;
+                case RemoteCommand::OpenDialog:
+                    OpenMediaDialog();
+                    break;
+            }
+            return 0;
 
         case WM_CLOSE:
             m_quitting = true;
