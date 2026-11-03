@@ -125,7 +125,7 @@ add_custom_target(portable
 # Installer: requires Inno Setup 6 (ISCC on PATH or in the default folder).
 find_program(LIVEWALL_ISCC
     NAMES ISCC iscc
-    HINTS "$ENV{ProgramFiles(x86)}/Inno Setup 6" "$ENV{ProgramFiles}/Inno Setup 6")
+    HINTS "$ENV{ProgramFiles\(x86\)}/Inno Setup 6" "$ENV{ProgramFiles}/Inno Setup 6")
 
 if(LIVEWALL_ISCC)
     add_custom_target(installer
