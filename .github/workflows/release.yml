@@ -26,7 +26,7 @@ jobs:
           if ("${{ github.ref }}" -like "refs/tags/v*") {
             $value = "${{ github.ref_name }}".Substring(1)
           } else {
-            $value = "0.1.0"
+            $value = "0.1.1"
           }
           "value=$value" >> $env:GITHUB_OUTPUT
           Write-Host "Version: $value"

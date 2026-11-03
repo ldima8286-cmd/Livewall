@@ -7,7 +7,7 @@
 ;   ISCC /DAppVersion=0.1.0 /DSourceDir=build\dist /DOutputDir=build\dist installer\livewall.iss
 
 #ifndef AppVersion
-  #define AppVersion "0.1.0"
+  #define AppVersion "0.1.1"
 #endif
 #ifndef SourceDir
   #define SourceDir "..\build\dist"

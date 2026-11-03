@@ -7,11 +7,18 @@ struct Frame {
     std::vector<uint8_t> pixels;
     uint32_t width = 0;
     uint32_t height = 0;
-    uint64_t serial = 0;  // incremented whenever the content changes
+    uint64_t serial = 0;  // unique id of the content, see NextFrameSerial()
 
     size_t Stride() const { return static_cast<size_t>(width) * 4; }
     bool Empty() const { return pixels.empty() || width == 0 || height == 0; }
 };
+
+// Process-wide, monotonically increasing frame id. It must not restart per
+// media source: the renderer skips an upload when the serial matches the last
+// one, and a per-source counter made the first frame of a newly opened file
+// collide with the last frame of the previous one (a static image always has
+// serial 1, so switching between two images changed nothing).
+uint64_t NextFrameSerial();
 
 class MediaSource {
 public:

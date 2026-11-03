@@ -35,7 +35,6 @@ private:
     UINT m_frameCount = 0;
     UINT m_index = 0;
     double m_elapsedMs = 0.0;
-    uint64_t m_serial = 0;
 };
 
 bool WicSource::Open(const std::wstring& path, std::string& error) {
@@ -93,7 +92,7 @@ bool WicSource::Open(const std::wstring& path, std::string& error) {
         error = "failed to decode the first frame";
         return false;
     }
-    m_frame.serial = ++m_serial;
+    m_frame.serial = NextFrameSerial();
     return true;
 }
 
@@ -165,7 +164,7 @@ bool WicSource::Advance(double seconds) {
         changed = true;
     }
 
-    if (changed) m_frame.serial = ++m_serial;
+    if (changed) m_frame.serial = NextFrameSerial();
     return changed;
 }
 

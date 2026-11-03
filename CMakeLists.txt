@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(LiveWall
-    VERSION 0.1.0
+    VERSION 0.1.1
     DESCRIPTION "Live wallpapers for the Windows desktop"
     LANGUAGES CXX)
 

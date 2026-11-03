@@ -386,7 +386,13 @@ bool Renderer::CreateFrameTexture(uint32_t width, uint32_t height) {
 
 void Renderer::UploadFrame(const Frame& frame) {
     if (frame.Empty() || !m_context || m_deviceLost) return;
-    if (frame.serial != 0 && frame.serial == m_frameSerial) return;
+    // Skip only a frame we have definitely uploaded already. The size check is
+    // redundant with unique serials, but keeps a reused serial from freezing a
+    // resized wallpaper.
+    if (frame.serial != 0 && frame.serial == m_frameSerial && m_frameTexture &&
+        m_frameWidth == frame.width && m_frameHeight == frame.height) {
+        return;
+    }
 
     if (!m_frameTexture || m_frameWidth != frame.width || m_frameHeight != frame.height) {
         if (!CreateFrameTexture(frame.width, frame.height)) return;

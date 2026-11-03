@@ -3,10 +3,14 @@
 #include "log.h"
 #include "util.h"
 
+#include <atomic>
+
 std::unique_ptr<MediaSource> CreateWicMediaSource();
 std::unique_ptr<MediaSource> CreateVideoMediaSource();
 
 namespace {
+
+std::atomic<uint64_t> g_frameSerial{0};
 
 bool IsImageExtension(const std::wstring& ext) {
     return ext == L".gif" || ext == L".png" || ext == L".jpg" || ext == L".jpeg" ||
@@ -14,6 +18,10 @@ bool IsImageExtension(const std::wstring& ext) {
 }
 
 }  // namespace
+
+uint64_t NextFrameSerial() {
+    return g_frameSerial.fetch_add(1, std::memory_order_relaxed) + 1;
+}
 
 std::unique_ptr<MediaSource> CreateMediaSource(const std::wstring& path, std::string& error) {
     if (!FileExists(path)) {

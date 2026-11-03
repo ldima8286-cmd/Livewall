@@ -41,7 +41,6 @@ private:
     uint32_t m_height = 0;
     LONG m_stride = 0;
     bool m_hasPending = false;
-    uint64_t m_serial = 0;
 };
 
 bool VideoSource::Open(const std::wstring& path, std::string& error) {
@@ -218,7 +217,7 @@ bool VideoSource::Advance(double seconds) {
                 m_current.pixels.swap(m_pending.pixels);
                 m_current.width = m_width;
                 m_current.height = m_height;
-                m_current.serial = ++m_serial;
+                m_current.serial = NextFrameSerial();
                 m_hasPending = false;
                 changed = true;
                 continue;
