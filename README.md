@@ -41,6 +41,12 @@
 
 ## Сборка
 
+Есть готовые пресеты (`CMakePresets.json`):
+
+```bash
+cmake --preset mingw && cmake --build --preset mingw        # или: --preset msvc
+```
+
 ### MSVC
 
 ```bat
@@ -111,6 +117,7 @@ livewall.exe --autostart
 
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — как устроено внутри.
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — что дальше.
+- [`docs/TESTING.md`](docs/TESTING.md) — ручной тест-план под Windows.
 
 ## Лицензия
 
